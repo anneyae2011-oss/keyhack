@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 
 interface ProviderKey {
   id: string;
@@ -19,6 +19,7 @@ interface ProviderKey {
 }
 
 const BUILTIN_PROVIDERS = ["openai", "anthropic", "google", "cohere", "mistral"];
+
 const AUTH_STYLES = [
   { value: "bearer", label: "Bearer Token — Authorization: Bearer <key>" },
   { value: "header", label: "Custom Header — e.g. X-API-Key: <key>" },
@@ -34,21 +35,23 @@ const EMPTY_FORM = {
 
 type FormState = typeof EMPTY_FORM;
 
-// Modal for adding a key (primary or fallback) to a specific provider
 function AddKeyModal({
-  provider, isFallback, nextPriority, adminSecret,
-  onClose, onSaved,
+  provider, isFallback, nextPriority, adminSecret, onClose, onSaved,
 }: {
-  provider: string; isFallback: boolean; nextPriority: number;
-  adminSecret: string; onClose: () => void; onSaved: () => void;
+  provider: string;
+  isFallback: boolean;
+  nextPriority: number;
+  adminSecret: string;
+  onClose: () => void;
+  onSaved: () => void;
 }) {
   const [form, setForm] = useState<FormState>({ ...EMPTY_FORM, priority: nextPriority });
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const isCustom = provider === "custom";
-  const headers = { "x-admin-secret": adminSecret, "Content-Type": "application/json" };
 
   const save = async () => {
+    setErr("");
     if (!form.name.trim()) return setErr("Name is required");
     if (isCustom && !form.customEndpoint.trim()) return setErr("Endpoint URL is required");
     if (!isCustom && !form.apiKey.trim()) return setErr("API key is required");
@@ -59,30 +62,44 @@ function AddKeyModal({
       catch { return setErr('Extra Headers must be valid JSON, e.g. {"X-Org": "val"}'); }
     }
 
-    setLoading(true); setErr("");
-    const res = await fetch("/api/admin/provider-keys", {
-      method: "POST", headers,
-      body: JSON.stringify({
-        provider,
-        name: form.name,
-        apiKey: form.apiKey || undefined,
-        priority: form.priority,
-        customEndpoint: isCustom ? form.customEndpoint : undefined,
-        customAuthStyle: isCustom ? form.customAuthStyle : undefined,
-        customAuthHeader: isCustom && form.customAuthStyle === "header" ? form.customAuthHeader : undefined,
-        customAuthQuery: isCustom && form.customAuthStyle === "query" ? form.customAuthQuery : undefined,
-        customHeaders: parsedHeaders,
-      }),
-    });
-    setLoading(false);
-    if (res.ok) { onSaved(); onClose(); }
-    else { const d = await res.json(); setErr(d.error ?? "Failed to add key"); }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/provider-keys", {
+        method: "POST",
+        headers: { "x-admin-secret": adminSecret, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider,
+          name: form.name.trim(),
+          apiKey: form.apiKey || undefined,
+          priority: form.priority,
+          customEndpoint: isCustom ? form.customEndpoint : undefined,
+          customAuthStyle: isCustom ? form.customAuthStyle : undefined,
+          customAuthHeader: isCustom && form.customAuthStyle === "header" ? form.customAuthHeader : undefined,
+          customAuthQuery: isCustom && form.customAuthStyle === "query" ? form.customAuthQuery : undefined,
+          customHeaders: parsedHeaders,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setErr(data.error ?? `Server error ${res.status}`);
+      } else {
+        onSaved(); // reload list
+        onClose(); // close modal
+      }
+    } catch (e) {
+      setErr("Network error — check console");
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="cyber-card rounded-lg w-full max-w-lg mx-4 p-6">
-        {/* Header */}
+
         <div className="flex items-center justify-between mb-5">
           <div>
             <div className="font-display text-sm tracking-widest uppercase neon-pink">
@@ -90,7 +107,7 @@ function AddKeyModal({
             </div>
             <div className="text-cyber-muted text-xs mt-1 font-mono-cyber">
               Provider: <span className="text-cyber-pink uppercase">{provider}</span>
-              {isFallback && <span className="ml-2 text-cyber-purple">· Slot #{form.priority}</span>}
+              {isFallback && <span className="ml-2 text-cyber-purple">· Fallback slot #{form.priority - 1}</span>}
             </div>
           </div>
           <button onClick={onClose} className="text-cyber-muted hover:text-cyber-pink text-xl leading-none">✕</button>
@@ -98,23 +115,21 @@ function AddKeyModal({
 
         {isFallback && (
           <div className="bg-cyber-purple/10 border border-cyber-purple/30 rounded p-3 mb-4 text-xs font-mono-cyber text-cyber-muted">
-            ↺ This key will be used <span className="text-cyber-purple">automatically</span> when higher-priority keys fail (rate limit, invalid key, quota exceeded, etc.)
+            ↺ Auto-used when higher-priority keys fail (401, 429, quota exceeded, etc.)
           </div>
         )}
 
-        {/* Name */}
         <div className="mb-3">
           <label className="text-cyber-muted text-xs mb-1 block">Key Name *</label>
           <input
+            autoFocus
             className="cyber-input w-full px-3 py-2.5 rounded text-sm"
             placeholder={isFallback ? "e.g. Fallback Key 1" : "e.g. Primary Key"}
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            autoFocus
           />
         </div>
 
-        {/* Custom endpoint fields */}
         {isCustom && (
           <div className="border border-cyber-purple/30 rounded-lg p-4 mb-3 bg-cyber-purple/5 space-y-3">
             <div className="text-cyber-purple text-xs font-display tracking-widest">CUSTOM ENDPOINT</div>
@@ -160,10 +175,9 @@ function AddKeyModal({
           </div>
         )}
 
-        {/* API Key */}
         <div className="mb-4">
           <label className="text-cyber-muted text-xs mb-1 block">
-            API Key {isCustom ? <span className="opacity-50">(leave blank if no auth)</span> : "*"}
+            API Key{isCustom ? <span className="opacity-50"> (leave blank if no auth)</span> : " *"}
           </label>
           <input
             type="password"
@@ -171,18 +185,28 @@ function AddKeyModal({
             placeholder={isCustom ? "your-api-key (optional)" : "sk-..."}
             value={form.apiKey}
             onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
-            onKeyDown={(e) => e.key === "Enter" && save()}
+            onKeyDown={(e) => e.key === "Enter" && !loading && save()}
           />
         </div>
 
-        {err && <div className="text-cyber-pink text-xs font-mono-cyber mb-3">⚠ {err}</div>}
+        {err && (
+          <div className="text-cyber-pink text-xs font-mono-cyber mb-3 bg-cyber-pink/10 border border-cyber-pink/30 rounded px-3 py-2">
+            ⚠ {err}
+          </div>
+        )}
 
         <div className="flex gap-3">
-          <button onClick={save} disabled={loading}
-            className="cyber-btn flex-1 py-2.5 rounded font-display text-xs tracking-widest">
+          <button
+            onClick={save}
+            disabled={loading}
+            className="cyber-btn flex-1 py-2.5 rounded font-display text-xs tracking-widest disabled:opacity-50"
+          >
             {loading ? "Saving..." : isFallback ? "↺ Add Fallback Key" : "◈ Add Primary Key"}
           </button>
-          <button onClick={onClose} className="px-4 py-2.5 rounded border border-cyber-border text-cyber-muted text-xs hover:text-cyber-text transition-colors">
+          <button
+            onClick={onClose}
+            className="px-4 py-2.5 rounded border border-cyber-border text-cyber-muted text-xs hover:text-cyber-text transition-colors"
+          >
             Cancel
           </button>
         </div>
@@ -191,20 +215,28 @@ function AddKeyModal({
   );
 }
 
-// One provider group card showing primary + fallback chain
 function ProviderGroup({
   provider, keys, adminSecret, onRefresh,
 }: {
-  provider: string; keys: ProviderKey[]; adminSecret: string; onRefresh: () => void;
+  provider: string;
+  keys: ProviderKey[];
+  adminSecret: string;
+  onRefresh: () => void;
 }) {
   const [modal, setModal] = useState<{ isFallback: boolean } | null>(null);
   const sorted = [...keys].sort((a, b) => a.priority - b.priority);
-  const nextPriority = sorted.length > 0 ? Math.max(...sorted.map(k => k.priority)) + 1 : 1;
-  const hasPrimary = sorted.some(k => k.priority === 1);
-  const headers = { "x-admin-secret": adminSecret, "Content-Type": "application/json" };
+  const nextPriority = sorted.length > 0 ? Math.max(...sorted.map(k => k.priority)) + 1 : 2;
 
   const remove = async (id: string) => {
-    await fetch("/api/admin/provider-keys", { method: "DELETE", headers, body: JSON.stringify({ id }) });
+    await fetch("/api/admin/provider-keys", {
+      method: "DELETE",
+      headers: { "x-admin-secret": adminSecret, "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    onRefresh();
+  };
+
+  const handleSaved = () => {
     onRefresh();
   };
 
@@ -214,14 +246,14 @@ function ProviderGroup({
         <AddKeyModal
           provider={provider}
           isFallback={modal.isFallback}
-          nextPriority={modal.isFallback ? nextPriority : 1}          adminSecret={adminSecret}
+          nextPriority={modal.isFallback ? nextPriority : 1}
+          adminSecret={adminSecret}
           onClose={() => setModal(null)}
-          onSaved={onRefresh}
+          onSaved={handleSaved}
         />
       )}
 
       <div className="cyber-card rounded-lg p-5 mb-4">
-        {/* Provider header */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <span className={`font-display text-sm tracking-widest uppercase ${provider === "custom" ? "neon-purple" : "neon-pink"}`}>
@@ -229,28 +261,37 @@ function ProviderGroup({
             </span>
             <span className="text-cyber-muted text-xs font-mono-cyber">
               {sorted.length} key{sorted.length !== 1 ? "s" : ""}
-              {sorted.length > 1 && <span className="text-cyber-purple ml-1">· {sorted.length - 1} fallback{sorted.length - 1 !== 1 ? "s" : ""}</span>}
+              {sorted.length > 1 && (
+                <span className="text-cyber-purple ml-1">
+                  · {sorted.length - 1} fallback{sorted.length - 1 !== 1 ? "s" : ""}
+                </span>
+              )}
             </span>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => setModal({ isFallback: false })}
-              className="cyber-btn px-3 py-1.5 rounded text-xs">
+            <button
+              onClick={() => setModal({ isFallback: false })}
+              className="cyber-btn px-3 py-1.5 rounded text-xs"
+            >
               + Add Key
             </button>
-            <button onClick={() => setModal({ isFallback: true })}
-              className="px-3 py-1.5 rounded text-xs border border-cyber-purple/60 text-cyber-purple hover:bg-cyber-purple/20 transition-colors font-display tracking-widest">
+            <button
+              onClick={() => setModal({ isFallback: true })}
+              className="px-3 py-1.5 rounded text-xs border border-cyber-purple/60 text-cyber-purple hover:bg-cyber-purple/20 transition-colors font-display tracking-widest"
+            >
               ↺ Add Fallback Key
             </button>
           </div>
         </div>
 
         {sorted.length === 0 ? (
-          <div className="text-cyber-muted text-xs font-mono-cyber py-2">No keys yet — add a primary key to get started.</div>
+          <div className="text-cyber-muted text-xs font-mono-cyber py-2">
+            No keys yet — click <span className="text-cyber-pink">+ Add Key</span> to add the primary key.
+          </div>
         ) : (
           <div className="space-y-2">
             {sorted.map((k, idx) => (
               <div key={k.id} className="relative">
-                {/* Connector line between keys */}
                 {idx < sorted.length - 1 && (
                   <div className="absolute left-[19px] top-full w-px h-2 bg-cyber-purple/40 z-10" />
                 )}
@@ -259,13 +300,11 @@ function ProviderGroup({
                     ? "bg-cyber-pink/5 border-cyber-pink/30"
                     : "bg-cyber-darker border-cyber-border/50"
                 }`}>
-                  {/* Priority badge */}
-                  <div className="flex-shrink-0 flex flex-col items-center gap-0.5">
-                    <span className={`w-3 h-3 rounded-full flex-shrink-0 ${k.priority === 1 ? "bg-cyber-pink animate-pulse" : "bg-cyber-purple/60"}`} />
-                  </div>
+                  <span className={`w-3 h-3 rounded-full flex-shrink-0 ${
+                    k.priority === 1 ? "bg-cyber-pink animate-pulse" : "bg-cyber-purple/60"
+                  }`} />
 
-                  {/* Label */}
-                  <div className="flex-shrink-0 w-20">
+                  <div className="flex-shrink-0 w-24">
                     {k.priority === 1 ? (
                       <span className="text-cyber-pink text-xs font-display tracking-widest">PRIMARY</span>
                     ) : (
@@ -273,7 +312,6 @@ function ProviderGroup({
                     )}
                   </div>
 
-                  {/* Name + endpoint */}
                   <div className="flex-1 min-w-0">
                     <span className="text-cyber-text text-xs">{k.name}</span>
                     {k.customEndpoint && (
@@ -281,32 +319,29 @@ function ProviderGroup({
                     )}
                   </div>
 
-                  {/* Key preview */}
                   <span className="text-cyber-muted text-xs font-mono-cyber flex-shrink-0">{k.keyPreview}</span>
 
-                  {/* Auth style badge for custom */}
                   {k.customAuthStyle && (
                     <span className="text-cyber-purple text-xs border border-cyber-purple/40 px-2 py-0.5 rounded flex-shrink-0">
                       {k.customAuthStyle}
                     </span>
                   )}
 
-                  {/* Stats */}
                   <span className="text-green-400 text-xs flex-shrink-0">✓{k.successCount}</span>
                   <span className={`text-xs flex-shrink-0 ${k.errorCount > 0 ? "text-cyber-pink" : "text-cyber-muted"}`}>
                     ✗{k.errorCount}
                   </span>
 
-                  {/* Remove */}
-                  <button onClick={() => remove(k.id)}
-                    className="text-cyber-muted hover:text-cyber-pink text-xs transition-colors flex-shrink-0 ml-1">
+                  <button
+                    onClick={() => remove(k.id)}
+                    className="text-cyber-muted hover:text-cyber-pink text-xs transition-colors flex-shrink-0 ml-1"
+                  >
                     Remove
                   </button>
                 </div>
               </div>
             ))}
 
-            {/* Fallback chain explanation */}
             {sorted.length > 1 && (
               <div className="mt-3 text-xs font-mono-cyber text-cyber-muted bg-cyber-darker rounded px-4 py-2 border border-cyber-border/30">
                 ↺ Fallback order: {sorted.map(k => k.name).join(" → ")}
@@ -325,14 +360,14 @@ export function ProviderKeysPanel({ adminSecret }: { adminSecret: string }) {
   const [newProviderName, setNewProviderName] = useState("");
   const [addModal, setAddModal] = useState<{ provider: string; isFallback: boolean } | null>(null);
 
-  const load = () =>
+  const load = useCallback(() => {
     fetch("/api/admin/provider-keys", { headers: { "x-admin-secret": adminSecret } })
       .then((r) => r.json())
       .then((d) => setKeys(Array.isArray(d) ? d : []));
+  }, [adminSecret]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
-  // All unique providers that have keys, plus built-ins always shown
   const activeProviders = Array.from(new Set([
     ...BUILTIN_PROVIDERS,
     "custom",
@@ -358,9 +393,7 @@ export function ProviderKeysPanel({ adminSecret }: { adminSecret: string }) {
         <AddKeyModal
           provider={addModal.provider}
           isFallback={addModal.isFallback}
-          nextPriority={addModal.isFallback
-            ? (grouped[addModal.provider]?.length ?? 0) + 1
-            : 1}
+          nextPriority={addModal.isFallback ? (grouped[addModal.provider]?.length ?? 0) + 2 : 1}
           adminSecret={adminSecret}
           onClose={() => setAddModal(null)}
           onSaved={() => { load(); setAddModal(null); }}
@@ -374,21 +407,19 @@ export function ProviderKeysPanel({ adminSecret }: { adminSecret: string }) {
         </p>
       </div>
 
-      {/* How fallback works */}
       <div className="cyber-card rounded-lg p-4 mb-6 border-cyber-purple/30">
         <div className="flex items-start gap-3">
           <span className="text-cyber-purple text-lg mt-0.5">↺</span>
           <div className="text-xs font-mono-cyber text-cyber-muted">
             <span className="text-cyber-purple">HOW FALLBACK WORKS — </span>
             NanaTwo tries the <span className="text-cyber-pink">PRIMARY</span> key first.
-            If it gets a 401, 403, 429, or 5xx error, it instantly retries with
-            <span className="text-cyber-purple"> FALLBACK 1</span>, then
-            <span className="text-cyber-purple"> FALLBACK 2</span>, and so on — automatically, no config needed.
+            On 401, 403, 429, or 5xx it instantly retries with{" "}
+            <span className="text-cyber-purple">FALLBACK 1</span>, then{" "}
+            <span className="text-cyber-purple">FALLBACK 2</span>, etc. — fully automatic.
           </div>
         </div>
       </div>
 
-      {/* Provider groups */}
       {activeProviders.map((provider) => (
         <ProviderGroup
           key={provider}
@@ -399,24 +430,23 @@ export function ProviderKeysPanel({ adminSecret }: { adminSecret: string }) {
         />
       ))}
 
-      {/* Add custom named provider */}
       <div className="cyber-card rounded-lg p-5 border-dashed border-cyber-border">
         {!showNewProvider ? (
           <button
             onClick={() => setShowNewProvider(true)}
             className="w-full text-cyber-muted text-xs font-mono-cyber hover:text-cyber-pink transition-colors text-center py-1"
           >
-            + Add a custom-named provider (e.g. "my-llm", "groq", "together-ai")
+            + Add a custom-named provider (e.g. "groq", "together-ai", "my-llm")
           </button>
         ) : (
           <div className="flex gap-3 items-center">
             <input
+              autoFocus
               className="cyber-input flex-1 px-3 py-2 rounded text-sm"
-              placeholder="Provider name, e.g. groq or my-llm-server"
+              placeholder='Provider name, e.g. "groq" or "my-llm-server"'
               value={newProviderName}
               onChange={(e) => setNewProviderName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && addCustomProvider()}
-              autoFocus
             />
             <button onClick={addCustomProvider} className="cyber-btn px-4 py-2 rounded text-xs">Continue</button>
             <button onClick={() => setShowNewProvider(false)} className="text-cyber-muted text-xs hover:text-cyber-text">Cancel</button>
