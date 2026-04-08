@@ -82,7 +82,32 @@ export async function DELETE(req: NextRequest) {
   return NextResponse.json({ success: true });
 }
 
-export async function PATCH(req: NextRequest) {
+export async function PUT(req: NextRequest) {
+  if (!adminAuth(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { id, name, apiKey, priority, customEndpoint, customAuthStyle, customAuthHeader, customAuthQuery, customHeaders } = await req.json();
+  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+  const updates: Record<string, unknown> = {};
+  if (name !== undefined) updates.name = name;
+  if (priority !== undefined) updates.priority = priority;
+  if (customEndpoint !== undefined) updates.customEndpoint = customEndpoint;
+  if (customAuthStyle !== undefined) updates.customAuthStyle = customAuthStyle;
+  if (customAuthHeader !== undefined) updates.customAuthHeader = customAuthHeader;
+  if (customAuthQuery !== undefined) updates.customAuthQuery = customAuthQuery;
+  if (customHeaders !== undefined) updates.customHeaders = customHeaders;
+
+  // Only re-encrypt if a new key was provided
+  if (apiKey) {
+    updates.encryptedKey = encrypt(apiKey);
+    updates.keyPreview = `...${apiKey.slice(-4)}`;
+  }
+
+  await db.update(providerKeys).set(updates).where(eq(providerKeys.id, id));
+  return NextResponse.json({ success: true });
+}
+
+
   if (!adminAuth(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id, priority, isActive } = await req.json();
   const updates: Record<string, unknown> = {};
