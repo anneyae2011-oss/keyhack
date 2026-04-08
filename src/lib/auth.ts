@@ -1,6 +1,6 @@
 import { db, gatewayKeys } from "@/lib/db";
 import { hashKey } from "@/lib/gateway/crypto";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { NextRequest } from "next/server";
 
 export async function validateGatewayKey(req: NextRequest): Promise<{ valid: boolean; keyId?: string; error?: string }> {
@@ -16,7 +16,9 @@ export async function validateGatewayKey(req: NextRequest): Promise<{ valid: boo
   if (!found.isActive) return { valid: false, error: "API key is disabled." };
 
   // Update usage stats
-  await db.execute(`UPDATE gateway_keys SET total_requests = total_requests + 1, last_used_at = NOW() WHERE id = '${found.id}'`);
+  await db.update(gatewayKeys)
+    .set({ totalRequests: sql`${gatewayKeys.totalRequests} + 1`, lastUsedAt: new Date() })
+    .where(eq(gatewayKeys.id, found.id));
 
   return { valid: true, keyId: found.id };
 }

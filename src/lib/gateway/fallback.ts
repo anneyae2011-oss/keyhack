@@ -7,7 +7,7 @@
 
 import { db, providerKeys } from "@/lib/db";
 import { decrypt } from "./crypto";
-import { eq, asc, and } from "drizzle-orm";
+import { eq, asc, and, sql } from "drizzle-orm";
 
 export type Provider = "openai" | "anthropic" | "google" | "cohere" | "mistral";
 
@@ -116,13 +116,13 @@ export async function fetchWithFallback(
 }
 
 async function markKeyError(id: string) {
-  await db.execute(
-    `UPDATE provider_keys SET error_count = error_count + 1, last_error_at = NOW() WHERE id = '${id}'`
-  );
+  await db.update(providerKeys)
+    .set({ errorCount: sql`${providerKeys.errorCount} + 1`, lastErrorAt: new Date() })
+    .where(eq(providerKeys.id, id));
 }
 
 async function markKeySuccess(id: string) {
-  await db.execute(
-    `UPDATE provider_keys SET success_count = success_count + 1, last_used_at = NOW() WHERE id = '${id}'`
-  );
+  await db.update(providerKeys)
+    .set({ successCount: sql`${providerKeys.successCount} + 1`, lastUsedAt: new Date() })
+    .where(eq(providerKeys.id, id));
 }
