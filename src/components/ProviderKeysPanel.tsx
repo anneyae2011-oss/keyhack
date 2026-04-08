@@ -338,11 +338,11 @@ export function ProviderKeysPanel({ adminSecret }: { adminSecret: string }) {
   useEffect(() => { load(); }, []);
 
   // All unique providers that have keys, plus built-ins always shown
-  const activeProviders = [...new Set([
+  const activeProviders = Array.from(new Set([
     ...BUILTIN_PROVIDERS,
     "custom",
     ...keys.map(k => k.provider),
-  ])];
+  ]));
 
   const grouped = activeProviders.reduce((acc, p) => {
     acc[p] = keys.filter(k => k.provider === p);
