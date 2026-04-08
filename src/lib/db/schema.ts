@@ -14,7 +14,9 @@ export const gatewayKeys = pgTable("gateway_keys", {
 
 export const providerKeys = pgTable("provider_keys", {
   id: uuid("id").primaryKey().defaultRandom(),
-  provider: text("provider").notNull(), // openai | anthropic | google | cohere | mistral
+  // Built-in: openai | anthropic | google | cohere | mistral
+  // Custom:   "custom" — uses customEndpoint + customHeaders + authStyle
+  provider: text("provider").notNull(),
   name: text("name").notNull(),
   encryptedKey: text("encrypted_key").notNull(),
   keyPreview: text("key_preview").notNull(), // last 4 chars
@@ -25,6 +27,12 @@ export const providerKeys = pgTable("provider_keys", {
   lastErrorAt: timestamp("last_error_at"),
   lastUsedAt: timestamp("last_used_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  // Custom provider fields (null for built-in providers)
+  customEndpoint: text("custom_endpoint"),       // e.g. https://my-llm.com/v1/chat
+  customAuthStyle: text("custom_auth_style"),    // "bearer" | "header" | "query" | "none"
+  customAuthHeader: text("custom_auth_header"),  // header name if authStyle="header", e.g. "X-API-Key"
+  customAuthQuery: text("custom_auth_query"),    // query param name if authStyle="query", e.g. "api_key"
+  customHeaders: jsonb("custom_headers"),        // extra static headers as JSON object
 });
 
 export const requestLogs = pgTable("request_logs", {

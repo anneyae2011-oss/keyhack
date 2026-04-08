@@ -40,7 +40,12 @@ export async function POST(req: NextRequest) {
       success_count INTEGER NOT NULL DEFAULT 0,
       last_error_at TIMESTAMPTZ,
       last_used_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      custom_endpoint TEXT,
+      custom_auth_style TEXT,
+      custom_auth_header TEXT,
+      custom_auth_query TEXT,
+      custom_headers JSONB
     )
   `;
 
@@ -61,6 +66,13 @@ export async function POST(req: NextRequest) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
+
+  // Add custom provider columns if they don't exist yet (safe for existing deployments)
+  await sql`ALTER TABLE provider_keys ADD COLUMN IF NOT EXISTS custom_endpoint TEXT`;
+  await sql`ALTER TABLE provider_keys ADD COLUMN IF NOT EXISTS custom_auth_style TEXT`;
+  await sql`ALTER TABLE provider_keys ADD COLUMN IF NOT EXISTS custom_auth_header TEXT`;
+  await sql`ALTER TABLE provider_keys ADD COLUMN IF NOT EXISTS custom_auth_query TEXT`;
+  await sql`ALTER TABLE provider_keys ADD COLUMN IF NOT EXISTS custom_headers JSONB`;
 
   // Seed initial gateway key
   const rawKey = generateGatewayKey();

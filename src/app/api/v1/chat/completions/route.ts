@@ -1,15 +1,27 @@
 /**
  * NanaTwo Gateway — /api/v1/chat/completions
  * OpenAI-compatible endpoint. Routes to the correct provider with automatic key fallback.
+ * Supports built-in providers (openai, anthropic, google, cohere, mistral)
+ * AND fully custom providers with user-defined endpoints.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { validateGatewayKey } from "@/lib/auth";
-import { fetchWithFallback, Provider } from "@/lib/gateway/fallback";
-import { buildOpenAIRequest, buildAnthropicRequest, buildGoogleRequest, buildMistralRequest, buildCohereRequest } from "@/lib/gateway/providers";
+import { fetchWithFallback } from "@/lib/gateway/fallback";
+import {
+  buildOpenAIRequest,
+  buildAnthropicRequest,
+  buildGoogleRequest,
+  buildMistralRequest,
+  buildCohereRequest,
+  buildCustomRequest,
+} from "@/lib/gateway/providers";
 import { db, requestLogs } from "@/lib/db";
+import type { providerKeys } from "@/lib/db/schema";
 
-const PROVIDER_MODELS: Record<string, Provider> = {
+type KeyRecord = typeof providerKeys.$inferSelect;
+
+const PROVIDER_MODEL_PREFIXES: Record<string, string> = {
   "gpt-": "openai",
   "o1": "openai",
   "o3": "openai",
@@ -20,11 +32,11 @@ const PROVIDER_MODELS: Record<string, Provider> = {
   "mixtral": "mistral",
 };
 
-function detectProvider(model: string): Provider {
-  for (const [prefix, provider] of Object.entries(PROVIDER_MODELS)) {
+function detectProvider(model: string): string {
+  for (const [prefix, provider] of Object.entries(PROVIDER_MODEL_PREFIXES)) {
     if (model.toLowerCase().startsWith(prefix)) return provider;
   }
-  return "openai"; // default
+  return "openai"; // default fallback
 }
 
 export async function POST(req: NextRequest) {
@@ -44,19 +56,24 @@ export async function POST(req: NextRequest) {
   }
 
   const model = (body.model as string) ?? "gpt-4o-mini";
-  const provider = (body.provider as Provider) ?? detectProvider(model);
+  // Allow explicit provider override in request body
+  const provider = (body.provider as string) ?? detectProvider(model);
 
-  // Remove internal fields before forwarding
+  // Strip internal gateway fields before forwarding
   const { provider: _p, ...forwardBody } = body;
 
-  // 2. Build provider-specific request builder
-  const buildRequest = (apiKey: string) => {
+  // 2. Build request — passes full key record so custom providers can use endpoint/auth config
+  const buildRequest = (apiKey: string, keyRecord: KeyRecord) => {
+    // If the stored key is a custom provider, always use custom builder
+    if (keyRecord.provider === "custom" || keyRecord.customEndpoint) {
+      return buildCustomRequest(apiKey, forwardBody, keyRecord);
+    }
     switch (provider) {
       case "anthropic": return buildAnthropicRequest(apiKey, forwardBody);
-      case "google": return buildGoogleRequest(apiKey, forwardBody, model);
-      case "cohere": return buildCohereRequest(apiKey, forwardBody);
-      case "mistral": return buildMistralRequest(apiKey, forwardBody);
-      default: return buildOpenAIRequest(apiKey, forwardBody);
+      case "google":    return buildGoogleRequest(apiKey, forwardBody, model);
+      case "cohere":    return buildCohereRequest(apiKey, forwardBody);
+      case "mistral":   return buildMistralRequest(apiKey, forwardBody);
+      default:          return buildOpenAIRequest(apiKey, forwardBody);
     }
   };
 
@@ -96,9 +113,9 @@ export async function POST(req: NextRequest) {
     fallbackAttempts: result.attempts,
   });
 
-  // 5. Return provider response with gateway headers
+  // 5. Return provider response with gateway metadata headers
   const headers = new Headers();
-  headers.set("Content-Type", "application/json");
+  headers.set("Content-Type", result.response.headers.get("content-type") ?? "application/json");
   headers.set("X-NanaTwo-Provider", provider);
   headers.set("X-NanaTwo-Fallback-Used", String(result.fallbackUsed));
   headers.set("X-NanaTwo-Attempts", String(result.attempts));

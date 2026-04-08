@@ -9,7 +9,7 @@ import { db, providerKeys } from "@/lib/db";
 import { decrypt } from "./crypto";
 import { eq, asc, and, sql } from "drizzle-orm";
 
-export type Provider = "openai" | "anthropic" | "google" | "cohere" | "mistral";
+export type Provider = "openai" | "anthropic" | "google" | "cohere" | "mistral" | "custom" | string;
 
 // Errors that should trigger a fallback to the next key
 const FALLBACK_STATUS_CODES = new Set([401, 403, 429, 500, 502, 503, 504]);
@@ -37,8 +37,8 @@ export interface FallbackResult {
 }
 
 export async function fetchWithFallback(
-  provider: Provider,
-  buildRequest: (apiKey: string) => { url: string; init: RequestInit }
+  provider: string,
+  buildRequest: (apiKey: string, keyRecord: typeof providerKeys.$inferSelect) => { url: string; init: RequestInit }
 ): Promise<FallbackResult> {
   // Load all active keys for this provider, ordered by priority (1 = primary first)
   const keys = await db
@@ -58,7 +58,7 @@ export async function fetchWithFallback(
   for (const key of keys) {
     attempts++;
     const decryptedKey = decrypt(key.encryptedKey);
-    const { url, init } = buildRequest(decryptedKey);
+    const { url, init } = buildRequest(decryptedKey, key);
 
     let res: Response;
     try {

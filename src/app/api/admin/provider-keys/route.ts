@@ -21,21 +21,56 @@ export async function GET(req: NextRequest) {
     lastErrorAt: providerKeys.lastErrorAt,
     lastUsedAt: providerKeys.lastUsedAt,
     createdAt: providerKeys.createdAt,
+    customEndpoint: providerKeys.customEndpoint,
+    customAuthStyle: providerKeys.customAuthStyle,
+    customAuthHeader: providerKeys.customAuthHeader,
+    customAuthQuery: providerKeys.customAuthQuery,
+    customHeaders: providerKeys.customHeaders,
   }).from(providerKeys);
   return NextResponse.json(keys);
 }
 
 export async function POST(req: NextRequest) {
   if (!adminAuth(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { provider, name, apiKey, priority = 1 } = await req.json();
-  if (!provider || !name || !apiKey) return NextResponse.json({ error: "provider, name, apiKey required" }, { status: 400 });
 
-  const encrypted = encrypt(apiKey);
-  const preview = `...${apiKey.slice(-4)}`;
+  const {
+    provider, name, apiKey, priority = 1,
+    // Custom provider fields
+    customEndpoint, customAuthStyle, customAuthHeader, customAuthQuery, customHeaders,
+  } = await req.json();
+
+  if (!provider || !name) return NextResponse.json({ error: "provider and name are required" }, { status: 400 });
+
+  // For custom providers, apiKey is optional (some endpoints need no auth)
+  const keyToStore = apiKey ?? "";
+  const encrypted = encrypt(keyToStore);
+  const preview = keyToStore.length >= 4 ? `...${keyToStore.slice(-4)}` : keyToStore.length > 0 ? "...****" : "(none)";
+
+  // Validate custom provider has an endpoint
+  if (provider === "custom" && !customEndpoint) {
+    return NextResponse.json({ error: "customEndpoint is required for custom providers" }, { status: 400 });
+  }
 
   const [created] = await db.insert(providerKeys).values({
-    provider, name, encryptedKey: encrypted, keyPreview: preview, priority,
-  }).returning({ id: providerKeys.id, provider: providerKeys.provider, name: providerKeys.name, keyPreview: providerKeys.keyPreview, priority: providerKeys.priority });
+    provider,
+    name,
+    encryptedKey: encrypted,
+    keyPreview: preview,
+    priority,
+    customEndpoint: customEndpoint ?? null,
+    customAuthStyle: customAuthStyle ?? null,
+    customAuthHeader: customAuthHeader ?? null,
+    customAuthQuery: customAuthQuery ?? null,
+    customHeaders: customHeaders ?? null,
+  }).returning({
+    id: providerKeys.id,
+    provider: providerKeys.provider,
+    name: providerKeys.name,
+    keyPreview: providerKeys.keyPreview,
+    priority: providerKeys.priority,
+    customEndpoint: providerKeys.customEndpoint,
+    customAuthStyle: providerKeys.customAuthStyle,
+  });
 
   return NextResponse.json(created, { status: 201 });
 }
