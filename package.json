@@ -1,0 +1,36 @@
+{
+  "name": "nanatwo-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "next": "14.2.5",
+    "react": "^18",
+    "react-dom": "^18",
+    "drizzle-orm": "^0.31.2",
+    "@neondatabase/serverless": "^0.9.4",
+    "drizzle-kit": "^0.22.7",
+    "nanoid": "^5.0.7",
+    "bcryptjs": "^2.4.3",
+    "jose": "^5.6.3",
+    "zod": "^3.23.8",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.400.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@types/bcryptjs": "^2.4.6",
+    "typescript": "^5",
+    "tailwindcss": "^3.4.4",
+    "postcss": "^8",
+    "autoprefixer": "^10"
+  }
+}
