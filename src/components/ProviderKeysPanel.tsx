@@ -214,8 +214,7 @@ function ProviderGroup({
         <AddKeyModal
           provider={provider}
           isFallback={modal.isFallback}
-          nextPriority={modal.isFallback ? nextPriority : 1}
-          adminSecret={adminSecret}
+          nextPriority={modal.isFallback ? nextPriority : 1}          adminSecret={adminSecret}
           onClose={() => setModal(null)}
           onSaved={onRefresh}
         />
@@ -234,18 +233,14 @@ function ProviderGroup({
             </span>
           </div>
           <div className="flex gap-2">
-            {!hasPrimary && (
-              <button onClick={() => setModal({ isFallback: false })}
-                className="cyber-btn px-3 py-1.5 rounded text-xs">
-                + Add Primary Key
-              </button>
-            )}
-            {hasPrimary && (
-              <button onClick={() => setModal({ isFallback: true })}
-                className="px-3 py-1.5 rounded text-xs border border-cyber-purple/60 text-cyber-purple hover:bg-cyber-purple/20 transition-colors font-display tracking-widest">
-                ↺ Add Fallback Key
-              </button>
-            )}
+            <button onClick={() => setModal({ isFallback: false })}
+              className="cyber-btn px-3 py-1.5 rounded text-xs">
+              + Add Key
+            </button>
+            <button onClick={() => setModal({ isFallback: true })}
+              className="px-3 py-1.5 rounded text-xs border border-cyber-purple/60 text-cyber-purple hover:bg-cyber-purple/20 transition-colors font-display tracking-widest">
+              ↺ Add Fallback Key
+            </button>
           </div>
         </div>
 
