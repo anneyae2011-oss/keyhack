@@ -9,14 +9,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { validateGatewayKey } from "@/lib/auth";
 import { fetchWithFallback } from "@/lib/gateway/fallback";
 import {
-  buildOpenAIRequest,
-  buildAnthropicRequest,
-  buildGoogleRequest,
-  buildMistralRequest,
-  buildCohereRequest,
-  buildCustomRequest,
+  buildOpenAIRequest, buildAnthropicRequest, buildGoogleRequest,
+  buildMistralRequest, buildCohereRequest, buildCustomRequest,
 } from "@/lib/gateway/providers";
 import { db, requestLogs } from "@/lib/db";
+import { ensureTables } from "@/lib/db/migrate";
 import type { providerKeys } from "@/lib/db/schema";
 
 type KeyRecord = typeof providerKeys.$inferSelect;
@@ -41,6 +38,7 @@ function detectProvider(model: string): string {
 
 export async function POST(req: NextRequest) {
   const start = Date.now();
+  await ensureTables();
 
   // 1. Validate gateway API key
   const auth = await validateGatewayKey(req);

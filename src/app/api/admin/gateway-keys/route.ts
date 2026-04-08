@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, gatewayKeys } from "@/lib/db";
 import { generateGatewayKey, hashKey } from "@/lib/gateway/crypto";
 import { eq } from "drizzle-orm";
+import { ensureTables } from "@/lib/db/migrate";
 
 function adminAuth(req: NextRequest): boolean {
   const secret = req.headers.get("x-admin-secret");
@@ -10,6 +11,7 @@ function adminAuth(req: NextRequest): boolean {
 
 export async function GET(req: NextRequest) {
   if (!adminAuth(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  await ensureTables();
   const keys = await db.select({
     id: gatewayKeys.id,
     name: gatewayKeys.name,
@@ -25,6 +27,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   if (!adminAuth(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  await ensureTables();
   const { name } = await req.json();
   if (!name) return NextResponse.json({ error: "name required" }, { status: 400 });
 

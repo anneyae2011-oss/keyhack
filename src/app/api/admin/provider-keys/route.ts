@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, providerKeys } from "@/lib/db";
 import { encrypt } from "@/lib/gateway/crypto";
 import { eq } from "drizzle-orm";
+import { ensureTables } from "@/lib/db/migrate";
 
 function adminAuth(req: NextRequest): boolean {
   return req.headers.get("x-admin-secret") === process.env.GATEWAY_SECRET;
@@ -9,6 +10,7 @@ function adminAuth(req: NextRequest): boolean {
 
 export async function GET(req: NextRequest) {
   if (!adminAuth(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  await ensureTables();
   const keys = await db.select({
     id: providerKeys.id,
     provider: providerKeys.provider,
@@ -32,6 +34,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   if (!adminAuth(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  await ensureTables();
 
   const {
     provider, name, apiKey, priority = 1,

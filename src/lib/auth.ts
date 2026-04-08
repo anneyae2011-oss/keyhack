@@ -2,8 +2,10 @@ import { db, gatewayKeys } from "@/lib/db";
 import { hashKey } from "@/lib/gateway/crypto";
 import { eq, sql } from "drizzle-orm";
 import { NextRequest } from "next/server";
+import { ensureTables } from "@/lib/db/migrate";
 
 export async function validateGatewayKey(req: NextRequest): Promise<{ valid: boolean; keyId?: string; error?: string }> {
+  await ensureTables();
   const authHeader = req.headers.get("authorization") ?? "";
   const key = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : req.headers.get("x-api-key") ?? "";
 
