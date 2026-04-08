@@ -33,19 +33,22 @@ const EMPTY_FORM = {
 type FormState = typeof EMPTY_FORM;
 
 // ── Add Key Modal ─────────────────────────────────────────────────────────────
-function AddKeyModal({ provider, isFallback, nextPriority, adminSecret, onClose, onSaved }: {
+function AddKeyModal({ provider, isFallback, nextPriority, primaryKey, adminSecret, onClose, onSaved }: {
   provider: string; isFallback: boolean; nextPriority: number;
+  primaryKey: ProviderKey | null; // inherited config when adding a fallback
   adminSecret: string; onClose: () => void; onSaved: () => void;
 }) {
   const [form, setForm] = useState<FormState>({ ...EMPTY_FORM, priority: nextPriority });
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  // For fallback keys on custom providers, endpoint is inherited from primary — don't show it
   const isCustom = provider === "custom";
+  const showEndpointFields = isCustom && !isFallback;
 
   const save = async () => {
     setErr("");
     if (!form.name.trim()) return setErr("Name is required");
-    if (isCustom && !form.customEndpoint.trim()) return setErr("Endpoint URL is required");
+    if (showEndpointFields && !form.customEndpoint.trim()) return setErr("Endpoint URL is required");
     if (!isCustom && !form.apiKey.trim()) return setErr("API key is required");
     let parsedHeaders: Record<string, string> | null = null;
     if (form.customHeaders.trim()) {
@@ -54,16 +57,22 @@ function AddKeyModal({ provider, isFallback, nextPriority, adminSecret, onClose,
     }
     setLoading(true);
     try {
+      // For fallback keys on custom providers, inherit endpoint config from primary
+      const inheritedEndpoint = isFallback && primaryKey?.customEndpoint ? primaryKey.customEndpoint : undefined;
+      const inheritedAuthStyle = isFallback && primaryKey?.customAuthStyle ? primaryKey.customAuthStyle : undefined;
+      const inheritedAuthHeader = isFallback && primaryKey?.customAuthHeader ? primaryKey.customAuthHeader : undefined;
+      const inheritedAuthQuery = isFallback && primaryKey?.customAuthQuery ? primaryKey.customAuthQuery : undefined;
+
       const res = await fetch("/api/admin/provider-keys", {
         method: "POST",
         headers: { "x-admin-secret": adminSecret, "Content-Type": "application/json" },
         body: JSON.stringify({
           provider, name: form.name.trim(), apiKey: form.apiKey || undefined,
           priority: form.priority,
-          customEndpoint: isCustom ? form.customEndpoint : undefined,
-          customAuthStyle: isCustom ? form.customAuthStyle : undefined,
-          customAuthHeader: isCustom && form.customAuthStyle === "header" ? form.customAuthHeader : undefined,
-          customAuthQuery: isCustom && form.customAuthStyle === "query" ? form.customAuthQuery : undefined,
+          customEndpoint: showEndpointFields ? form.customEndpoint : inheritedEndpoint,
+          customAuthStyle: showEndpointFields ? form.customAuthStyle : inheritedAuthStyle,
+          customAuthHeader: showEndpointFields && form.customAuthStyle === "header" ? form.customAuthHeader : inheritedAuthHeader,
+          customAuthQuery: showEndpointFields && form.customAuthStyle === "query" ? form.customAuthQuery : inheritedAuthQuery,
           customHeaders: parsedHeaders,
         }),
       });
@@ -90,18 +99,25 @@ function AddKeyModal({ provider, isFallback, nextPriority, adminSecret, onClose,
           </div>
           <button onClick={onClose} className="text-cyber-muted hover:text-cyber-pink text-xl leading-none">✕</button>
         </div>
+
         {isFallback && (
           <div className="bg-cyber-purple/10 border border-cyber-purple/30 rounded p-3 mb-4 text-xs font-mono-cyber text-cyber-muted">
             ↺ Auto-used when higher-priority keys fail (401, 429, quota exceeded, etc.)
+            {primaryKey?.customEndpoint && (
+              <div className="mt-1 text-cyber-purple">Endpoint inherited: {primaryKey.customEndpoint}</div>
+            )}
           </div>
         )}
+
         <div className="mb-3">
           <label className="text-cyber-muted text-xs mb-1 block">Key Name *</label>
           <input autoFocus className="cyber-input w-full px-3 py-2.5 rounded text-sm"
             placeholder={isFallback ? "e.g. Fallback Key 1" : "e.g. Primary Key"}
             value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         </div>
-        {isCustom && (
+
+        {/* Only show endpoint config when adding a PRIMARY custom key */}
+        {showEndpointFields && (
           <div className="border border-cyber-purple/30 rounded-lg p-4 mb-3 bg-cyber-purple/5 space-y-3">
             <div className="text-cyber-purple text-xs font-display tracking-widest">CUSTOM ENDPOINT</div>
             <div>
@@ -359,6 +375,7 @@ function ProviderGroup({ provider, keys, adminSecret, onRefresh }: {
       {addModal && (
         <AddKeyModal provider={provider} isFallback={addModal.isFallback}
           nextPriority={addModal.isFallback ? nextPriority : 1}
+          primaryKey={addModal.isFallback ? (sorted.find(k => k.priority === 1) ?? null) : null}
           adminSecret={adminSecret} onClose={() => setAddModal(null)}
           onSaved={() => { onRefresh(); setAddModal(null); }} />
       )}
@@ -505,6 +522,7 @@ export function ProviderKeysPanel({ adminSecret }: { adminSecret: string }) {
       {addModal && (
         <AddKeyModal provider={addModal.provider} isFallback={addModal.isFallback}
           nextPriority={addModal.isFallback ? (grouped[addModal.provider]?.length ?? 0) + 2 : 1}
+          primaryKey={addModal.isFallback ? (grouped[addModal.provider]?.find(k => k.priority === 1) ?? null) : null}
           adminSecret={adminSecret}
           onClose={() => setAddModal(null)}
           onSaved={() => { load(); setAddModal(null); }} />
