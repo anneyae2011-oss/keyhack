@@ -72,11 +72,11 @@ export async function GET(req: NextRequest) {
       // Try fetching /models from the custom endpoint base
       try {
         const base = key.customEndpoint!.replace(/\/chat\/completions\/?$/, "").replace(/\/v\d+\/?$/, "");
-        const authHeader = key.customAuthStyle === "bearer" ? { Authorization: `Bearer ${apiKey}` }
-          : key.customAuthStyle === "header" && key.customAuthHeader ? { [key.customAuthHeader]: apiKey }
-          : {};
+        const authHeaders: Record<string, string> = {};
+        if (key.customAuthStyle === "bearer") authHeaders["Authorization"] = `Bearer ${apiKey}`;
+        else if (key.customAuthStyle === "header" && key.customAuthHeader) authHeaders[key.customAuthHeader] = apiKey;
         const res = await fetch(`${base}/v1/models`, {
-          headers: { "Content-Type": "application/json", ...authHeader },
+          headers: { "Content-Type": "application/json", ...authHeaders } as HeadersInit,
           signal: AbortSignal.timeout(5000),
         });
         if (res.ok) {
