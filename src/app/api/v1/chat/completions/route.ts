@@ -14,9 +14,10 @@ type KeyRecord = typeof providerKeysType.$inferSelect;
 
 const BUILTIN = ["openai", "anthropic", "google", "cohere", "mistral"];
 
+export const runtime = "edge"; // enable streaming on Vercel
+
 export async function POST(req: NextRequest) {
   const start = Date.now();
-  await ensureTables();
 
   const auth = await validateGatewayKey(req);
   if (!auth.valid) {
@@ -31,15 +32,15 @@ export async function POST(req: NextRequest) {
   }
 
   const model = (body.model as string) ?? "";
+  const isStreaming = body.stream === true;
   const { provider: explicitProvider, ...forwardBody } = body;
 
-  // Load every active provider from DB — this is the source of truth
+  // Load every active provider from DB
   const activeRows = await db
     .select({ provider: providerKeys.provider })
     .from(providerKeys)
     .where(eq(providerKeys.isActive, true));
 
-  // Unique providers, custom ones first
   const allActive = Array.from(new Set(activeRows.map(r => r.provider)));
   const customFirst = [
     ...allActive.filter(p => !BUILTIN.includes(p)),
@@ -47,27 +48,16 @@ export async function POST(req: NextRequest) {
   ];
 
   let provider: string;
-
   if (explicitProvider && typeof explicitProvider === "string") {
-    // Honour explicit provider from request body regardless
     provider = explicitProvider;
   } else if (customFirst.length === 1) {
-    // Only one provider configured — always use it, ignore model name
     provider = customFirst[0];
   } else if (customFirst.length > 1) {
-    // Multiple providers — try to match model name to a configured provider
-    // Check if any configured provider name appears in the model string
     const matched = customFirst.find(p => model.toLowerCase().includes(p.toLowerCase()));
-    if (matched) {
-      provider = matched;
-    } else {
-      // No match — use the first custom provider, or first available
-      provider = customFirst[0];
-    }
+    provider = matched ?? customFirst[0];
   } else {
-    // Nothing configured at all
     return NextResponse.json(
-      { error: { message: "No provider keys configured. Add keys in the NanaTwo dashboard.", type: "gateway_error" } },
+      { error: { message: "No provider keys configured.", type: "gateway_error" } },
       { status: 503 }
     );
   }
@@ -94,6 +84,41 @@ export async function POST(req: NextRequest) {
   }
 
   const latency = Date.now() - start;
+
+  const responseHeaders = new Headers();
+  responseHeaders.set("X-NanaTwo-Provider", provider);
+  responseHeaders.set("X-NanaTwo-Fallback-Used", String(result.fallbackUsed));
+  responseHeaders.set("X-NanaTwo-Attempts", String(result.attempts));
+  responseHeaders.set("X-NanaTwo-Latency-Ms", String(latency));
+  responseHeaders.set("Access-Control-Allow-Origin", "*");
+
+  // ── Streaming ──────────────────────────────────────────────────────────────
+  if (isStreaming && result.response.ok && result.response.body) {
+    responseHeaders.set("Content-Type", "text/event-stream");
+    responseHeaders.set("Cache-Control", "no-cache");
+    responseHeaders.set("Connection", "keep-alive");
+
+    // Log async without blocking the stream
+    db.insert(requestLogs).values({
+      gatewayKeyId: auth.keyId,
+      provider, model,
+      providerKeyId: result.usedKeyId || null,
+      status: result.response.status,
+      promptTokens: 0, completionTokens: 0,
+      latencyMs: latency,
+      error: null,
+      fallbackUsed: result.fallbackUsed,
+      fallbackAttempts: result.attempts,
+    }).catch(() => {});
+
+    // Pipe the stream directly through
+    return new NextResponse(result.response.body, {
+      status: result.response.status,
+      headers: responseHeaders,
+    });
+  }
+
+  // ── Non-streaming ──────────────────────────────────────────────────────────
   const responseBody = await result.response.text();
 
   let tokens = { prompt: 0, completion: 0 };
@@ -105,8 +130,7 @@ export async function POST(req: NextRequest) {
 
   await db.insert(requestLogs).values({
     gatewayKeyId: auth.keyId,
-    provider,
-    model,
+    provider, model,
     providerKeyId: result.usedKeyId || null,
     status: result.response.status,
     promptTokens: tokens.prompt,
@@ -117,12 +141,6 @@ export async function POST(req: NextRequest) {
     fallbackAttempts: result.attempts,
   });
 
-  const headers = new Headers();
-  headers.set("Content-Type", result.response.headers.get("content-type") ?? "application/json");
-  headers.set("X-NanaTwo-Provider", provider);
-  headers.set("X-NanaTwo-Fallback-Used", String(result.fallbackUsed));
-  headers.set("X-NanaTwo-Attempts", String(result.attempts));
-  headers.set("X-NanaTwo-Latency-Ms", String(latency));
-
-  return new NextResponse(responseBody, { status: result.response.status, headers });
+  responseHeaders.set("Content-Type", result.response.headers.get("content-type") ?? "application/json");
+  return new NextResponse(responseBody, { status: result.response.status, headers: responseHeaders });
 }
