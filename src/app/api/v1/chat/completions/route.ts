@@ -58,28 +58,25 @@ export async function POST(req: NextRequest) {
 
   const activeProviders = new Set(activeKeys.map(k => k.provider));
 
-  // Resolve which provider to use:
-  // 1. Explicit override in request body (e.g. "provider": "my-custom")
-  // 2. Model prefix match — but ONLY if that provider has keys in DB
-  // 3. If guessed provider has no keys, fall back to whatever IS configured
-  // 4. Last resort: "custom" if that's all there is
   let provider: string;
 
-  if (explicitProvider && typeof explicitProvider === "string") {
+  if (explicitProvider && typeof explicitProvider === "string" && activeProviders.has(explicitProvider)) {
+    // Explicit provider in request and it exists
+    provider = explicitProvider;
+  } else if (explicitProvider && typeof explicitProvider === "string") {
+    // Explicit but not found — still try it, will get a clear error
     provider = explicitProvider;
   } else {
     const guessed = guessProviderFromModel(model);
     if (activeProviders.has(guessed)) {
+      // Guessed provider has keys — use it
       provider = guessed;
-    } else if (activeProviders.size > 0) {
-      // Use the first configured provider — custom providers take priority
-      // Prefer custom/named providers over built-ins when the guessed one isn't available
-      const customProviders = [...activeProviders].filter(p =>
-        !["openai","anthropic","google","cohere","mistral"].includes(p)
-      );
-      provider = customProviders.length > 0 ? customProviders[0] : [...activeProviders][0];
     } else {
-      provider = guessed; // will 503 with a clear message
+      // Guessed provider has NO keys — ignore the guess entirely,
+      // just use the first configured provider (custom first, then built-ins)
+      const all = Array.from(activeProviders);
+      const custom = all.filter(p => !["openai","anthropic","google","cohere","mistral"].includes(p));
+      provider = custom.length > 0 ? custom[0] : all[0] ?? guessed;
     }
   }
 
