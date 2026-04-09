@@ -44,22 +44,35 @@ async function fetchOpenAIModelList(apiKey: string): Promise<string[]> {
 
 async function fetchCustomModelList(apiKey: string, key: typeof providerKeys.$inferSelect): Promise<string[]> {
   try {
-    const base = (key.customEndpoint ?? "")
+    // Strip everything after /v1 to get the base, then append /v1/models
+    const endpoint = key.customEndpoint ?? "";
+    const base = endpoint
       .replace(/\/chat\/completions\/?$/, "")
-      .replace(/\/completions\/?$/, "");
-    const authHeaders: Record<string, string> = {};
-    if (key.customAuthStyle === "bearer") authHeaders["Authorization"] = `Bearer ${apiKey}`;
-    else if (key.customAuthStyle === "header" && key.customAuthHeader) authHeaders[key.customAuthHeader] = apiKey;
+      .replace(/\/completions\/?$/, "")
+      .replace(/\/messages\/?$/, "")
+      .replace(/\/$/, "");
 
-    const res = await fetch(`${base}/models`, {
+    // base is now something like https://api.example.com/v1
+    const modelsUrl = `${base}/models`;
+
+    const authHeaders: Record<string, string> = {};
+    if (key.customAuthStyle === "bearer" || !key.customAuthStyle) {
+      authHeaders["Authorization"] = `Bearer ${apiKey}`;
+    } else if (key.customAuthStyle === "header" && key.customAuthHeader) {
+      authHeaders[key.customAuthHeader] = apiKey;
+    }
+
+    const res = await fetch(modelsUrl, {
       headers: authHeaders,
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(8000),
     });
+
     if (!res.ok) return [];
     const data = await res.json();
-    return (data.data ?? data.models ?? [])
-      .map((m: { id?: string; name?: string }) => m.id ?? m.name ?? "")
+    const list = (data.data ?? data.models ?? data.result ?? [])
+      .map((m: { id?: string; name?: string; model?: string }) => m.id ?? m.name ?? m.model ?? "")
       .filter(Boolean);
+    return list;
   } catch { return []; }
 }
 
