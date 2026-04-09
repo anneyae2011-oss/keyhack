@@ -33,11 +33,6 @@ export async function POST(req: NextRequest) {
   const model = (body.model as string) ?? "";
   const { provider: explicitProvider, ...forwardBody } = body;
 
-  // Strip provider prefix from model name before forwarding
-  // e.g. "openai/gpt-5.4" → "gpt-5.4", "anthropic/claude-sonnet-4-6" → "claude-sonnet-4-6"
-  const cleanModel = model.includes("/") ? model.split("/").slice(1).join("/") : model;
-  forwardBody.model = cleanModel;
-
   // Load every active provider from DB — this is the source of truth
   const activeRows = await db
     .select({ provider: providerKeys.provider })
