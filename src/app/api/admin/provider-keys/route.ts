@@ -94,7 +94,8 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   if (!adminAuth(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await req.json();
-  await db.update(providerKeys).set({ isActive: false }).where(eq(providerKeys.id, id));
+  // Hard delete — actually remove the row so it disappears from the UI
+  await db.delete(providerKeys).where(eq(providerKeys.id, id));
   return NextResponse.json({ success: true });
 }
 

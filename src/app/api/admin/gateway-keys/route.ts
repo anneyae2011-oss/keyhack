@@ -55,7 +55,7 @@ export async function DELETE(req: NextRequest) {
   if (!adminAuth(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
     const { id } = await req.json();
-    await db.update(gatewayKeys).set({ isActive: false }).where(eq(gatewayKeys.id, id));
+    await db.delete(gatewayKeys).where(eq(gatewayKeys.id, id));
     return NextResponse.json({ success: true });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
