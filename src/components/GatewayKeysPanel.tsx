@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 
 interface GatewayKey {
   id: string;
@@ -16,28 +16,51 @@ export function GatewayKeysPanel({ adminSecret }: { adminSecret: string }) {
   const [name, setName] = useState("");
   const [newKey, setNewKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-  const headers = { "x-admin-secret": adminSecret, "Content-Type": "application/json" };
+  const h = { "x-admin-secret": adminSecret, "Content-Type": "application/json" };
 
-  const load = () =>
-    fetch("/api/admin/gateway-keys", { headers }).then((r) => r.json()).then((d) => setKeys(Array.isArray(d) ? d : []));
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/gateway-keys", { headers: h });
+      const data = await res.json();
+      if (!res.ok) { setErr(data.error ?? `Error ${res.status}`); return; }
+      setKeys(Array.isArray(data) ? data : []);
+    } catch (e) { setErr(String(e)); }
+  }, [adminSecret]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const create = async () => {
     if (!name.trim()) return;
+    setErr(null);
     setLoading(true);
-    const res = await fetch("/api/admin/gateway-keys", { method: "POST", headers, body: JSON.stringify({ name }) });
-    const data = await res.json();
-    setNewKey(data.key);
-    setName("");
-    await load();
-    setLoading(false);
+    try {
+      const res = await fetch("/api/admin/gateway-keys", {
+        method: "POST", headers: h, body: JSON.stringify({ name: name.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErr(data.error ?? `Server error ${res.status}`);
+      } else if (!data.key) {
+        setErr("Key was created but not returned — check Vercel logs");
+      } else {
+        setNewKey(data.key);
+        setName("");
+        await load();
+      }
+    } catch (e) {
+      setErr(`Network error: ${String(e)}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const revoke = async (id: string) => {
-    await fetch("/api/admin/gateway-keys", { method: "DELETE", headers, body: JSON.stringify({ id }) });
-    await load();
+    try {
+      await fetch("/api/admin/gateway-keys", { method: "DELETE", headers: h, body: JSON.stringify({ id }) });
+      await load();
+    } catch (e) { setErr(String(e)); }
   };
 
   return (
@@ -47,15 +70,25 @@ export function GatewayKeysPanel({ adminSecret }: { adminSecret: string }) {
         <p className="text-cyber-muted text-sm mt-1 font-mono-cyber">Keys used to authenticate requests to NanaTwo</p>
       </div>
 
+      {/* Error banner */}
+      {err && (
+        <div className="cyber-card rounded-lg p-4 mb-6 border-cyber-pink/60 bg-cyber-pink/5">
+          <div className="text-cyber-pink text-xs font-mono-cyber">⚠ {err}</div>
+          <button onClick={() => setErr(null)} className="text-cyber-muted text-xs mt-1 hover:text-cyber-text">Dismiss</button>
+        </div>
+      )}
+
       {/* New key revealed */}
       {newKey && (
         <div className="cyber-card rounded-lg p-5 mb-6 border-cyber-pink/60">
           <div className="text-cyber-pink text-xs font-display tracking-widest mb-2">⚠ SAVE THIS KEY — SHOWN ONCE</div>
           <code className="text-cyber-text font-mono-cyber text-sm break-all bg-cyber-darker px-3 py-2 rounded block">{newKey}</code>
-          <button onClick={() => { navigator.clipboard.writeText(newKey); }} className="cyber-btn px-4 py-2 rounded mt-3 text-xs">
-            Copy to Clipboard
-          </button>
-          <button onClick={() => setNewKey(null)} className="ml-3 text-cyber-muted text-xs hover:text-cyber-text">Dismiss</button>
+          <div className="flex gap-3 mt-3">
+            <button onClick={() => navigator.clipboard.writeText(newKey)} className="cyber-btn px-4 py-2 rounded text-xs">
+              Copy to Clipboard
+            </button>
+            <button onClick={() => setNewKey(null)} className="text-cyber-muted text-xs hover:text-cyber-text">Dismiss</button>
+          </div>
         </div>
       )}
 
@@ -68,10 +101,10 @@ export function GatewayKeysPanel({ adminSecret }: { adminSecret: string }) {
             placeholder="Key name (e.g. Production App)"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && create()}
+            onKeyDown={(e) => e.key === "Enter" && !loading && create()}
           />
-          <button onClick={create} disabled={loading} className="cyber-btn px-6 py-2.5 rounded">
-            {loading ? "..." : "Generate"}
+          <button onClick={create} disabled={loading} className="cyber-btn px-6 py-2.5 rounded disabled:opacity-50">
+            {loading ? "Generating..." : "Generate"}
           </button>
         </div>
       </div>
@@ -113,7 +146,7 @@ export function GatewayKeysPanel({ adminSecret }: { adminSecret: string }) {
                 </tr>
               ))}
               {keys.length === 0 && (
-                <tr><td colSpan={6} className="py-8 text-center text-cyber-muted">No keys yet</td></tr>
+                <tr><td colSpan={6} className="py-8 text-center text-cyber-muted">No keys yet — create one above</td></tr>
               )}
             </tbody>
           </table>
