@@ -14,8 +14,6 @@ type KeyRecord = typeof providerKeysType.$inferSelect;
 
 const BUILTIN = ["openai", "anthropic", "google", "cohere", "mistral"];
 
-export const runtime = "edge"; // enable streaming on Vercel
-
 export async function POST(req: NextRequest) {
   const start = Date.now();
 
