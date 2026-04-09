@@ -92,13 +92,14 @@ export async function GET(req: NextRequest) {
     const apiKey = decrypt(key.encryptedKey);
 
     if (key.customEndpoint) {
-      // Custom provider — try live fetch
+      // Custom provider — try live fetch, but ALWAYS show at least one entry
       const live = await fetchCustomModelList(apiKey, key);
       if (live.length > 0) {
-        live.forEach(id => modelList.push(makeModel(id, key.name)));
-      } else {
-        // Can't fetch models — show the provider name as the only option
-        modelList.push(makeModel(key.name, key.name));
+        live.forEach(id => modelList.push(makeModel(id, provider)));
+      }
+      // Always guarantee at least one model shows up using the provider name
+      if (modelList.filter(m => m.owned_by === provider).length === 0) {
+        modelList.push(makeModel(provider, provider));
       }
     } else if (provider === "openai") {
       const live = await fetchOpenAIModelList(apiKey);
@@ -108,6 +109,16 @@ export async function GET(req: NextRequest) {
       // Built-in provider with static list — only shown because key exists
       STATIC_MODELS[provider].forEach(id => modelList.push(makeModel(id, provider)));
     }
+  }
+
+  return NextResponse.json(
+    { object: "list", data: modelList },
+    { headers: CORS_HEADERS }
+  );
+
+  // Last resort — if list is still empty, at minimum show every configured provider name
+  if (modelList.length === 0) {
+    Object.keys(primaryByProvider).forEach(p => modelList.push(makeModel(p, p)));
   }
 
   return NextResponse.json(
