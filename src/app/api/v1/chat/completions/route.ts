@@ -12,24 +12,7 @@ import type { providerKeys as providerKeysType } from "@/lib/db/schema";
 
 type KeyRecord = typeof providerKeysType.$inferSelect;
 
-const PROVIDER_MODEL_PREFIXES: Record<string, string> = {
-  "gpt-":    "openai",
-  "o1":      "openai",
-  "o3":      "openai",
-  "o4":      "openai",
-  "claude-": "anthropic",
-  "gemini-": "google",
-  "command": "cohere",
-  "mistral": "mistral",
-  "mixtral": "mistral",
-};
-
-function guessProviderFromModel(model: string): string {
-  for (const [prefix, provider] of Object.entries(PROVIDER_MODEL_PREFIXES)) {
-    if (model.toLowerCase().startsWith(prefix)) return provider;
-  }
-  return "openai";
-}
+const BUILTIN = ["openai", "anthropic", "google", "cohere", "mistral"];
 
 export async function POST(req: NextRequest) {
   const start = Date.now();
@@ -47,37 +30,46 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: { message: "Invalid JSON body", type: "invalid_request_error" } }, { status: 400 });
   }
 
-  const model = (body.model as string) ?? "gpt-4o-mini";
+  const model = (body.model as string) ?? "";
   const { provider: explicitProvider, ...forwardBody } = body;
 
-  // Load all active provider names from DB
-  const activeKeys = await db
+  // Load every active provider from DB — this is the source of truth
+  const activeRows = await db
     .select({ provider: providerKeys.provider })
     .from(providerKeys)
     .where(eq(providerKeys.isActive, true));
 
-  const activeProviders = new Set(activeKeys.map(k => k.provider));
+  // Unique providers, custom ones first
+  const allActive = Array.from(new Set(activeRows.map(r => r.provider)));
+  const customFirst = [
+    ...allActive.filter(p => !BUILTIN.includes(p)),
+    ...allActive.filter(p => BUILTIN.includes(p)),
+  ];
 
   let provider: string;
 
-  if (explicitProvider && typeof explicitProvider === "string" && activeProviders.has(explicitProvider)) {
-    // Explicit provider in request and it exists
+  if (explicitProvider && typeof explicitProvider === "string") {
+    // Honour explicit provider from request body regardless
     provider = explicitProvider;
-  } else if (explicitProvider && typeof explicitProvider === "string") {
-    // Explicit but not found — still try it, will get a clear error
-    provider = explicitProvider;
-  } else {
-    const guessed = guessProviderFromModel(model);
-    if (activeProviders.has(guessed)) {
-      // Guessed provider has keys — use it
-      provider = guessed;
+  } else if (customFirst.length === 1) {
+    // Only one provider configured — always use it, ignore model name
+    provider = customFirst[0];
+  } else if (customFirst.length > 1) {
+    // Multiple providers — try to match model name to a configured provider
+    // Check if any configured provider name appears in the model string
+    const matched = customFirst.find(p => model.toLowerCase().includes(p.toLowerCase()));
+    if (matched) {
+      provider = matched;
     } else {
-      // Guessed provider has NO keys — ignore the guess entirely,
-      // just use the first configured provider (custom first, then built-ins)
-      const all = Array.from(activeProviders);
-      const custom = all.filter(p => !["openai","anthropic","google","cohere","mistral"].includes(p));
-      provider = custom.length > 0 ? custom[0] : all[0] ?? guessed;
+      // No match — use the first custom provider, or first available
+      provider = customFirst[0];
     }
+  } else {
+    // Nothing configured at all
+    return NextResponse.json(
+      { error: { message: "No provider keys configured. Add keys in the NanaTwo dashboard.", type: "gateway_error" } },
+      { status: 503 }
+    );
   }
 
   const buildRequest = (apiKey: string, keyRecord: KeyRecord) => {
